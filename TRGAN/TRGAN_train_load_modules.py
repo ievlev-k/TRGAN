@@ -3,12 +3,15 @@ import torch
 import joblib
 from TRGAN.encoders import *
 from TRGAN.TRGAN_main_V2 import *
-
+import os
 
 def embeddings(data: pd.DataFrame, cat_feat_names, num_feat_names, onehot_cols, date_feature, time_feature, client_id,
                latent_dim, device: str = 'cpu', epochs: int = 80, load: bool = True, directory: str = 'Pretrained_model/'):
-    
-    round_array = learn_round(data, num_feat_names, time_feature)
+    os.makedirs(directory, exist_ok=True)
+    if data is not None:
+        round_array = learn_round(data, num_feat_names, time_feature)
+    else: 
+        round_array = None    
     
     if load:
         # onehot embeddings
@@ -48,7 +51,9 @@ def embeddings(data: pd.DataFrame, cat_feat_names, num_feat_names, onehot_cols, 
         scaler_cat = {'encoder': encoder_cat,
                       'decoder': decoder_cat,
                       'scaler': joblib.load(directory + 'scaler_cat.joblib'),
-                      'freq_encoder': joblib.load(directory + 'freq_encoder.joblib')}
+                      'freq_encoder': joblib.load(directory + 'freq_encoder.joblib'),
+                      'index_arr': joblib.load(directory + 'index_arr_cat.joblib')
+                      }
         ######################################
         
         
@@ -68,7 +73,9 @@ def embeddings(data: pd.DataFrame, cat_feat_names, num_feat_names, onehot_cols, 
         scaler_num = {'encoder': encoder_num,
                       'decoder': decoder_num,
                       'scaler_minmax': joblib.load(directory + 'scaler_minmax.joblib'),
-                      'scaler': joblib.load(directory + 'scaler_num.joblib')}
+                      'scaler': joblib.load(directory + 'scaler_num.joblib'),
+                      'index_arr': joblib.load(directory + 'index_arr_num.joblib'),
+                      'index_df_sort': joblib.load(directory + 'index_df_sort_num.joblib')}
         ######################################
         
         
@@ -124,6 +131,7 @@ def embeddings(data: pd.DataFrame, cat_feat_names, num_feat_names, onehot_cols, 
         np.save(directory + 'categorical_emb.npy', categorical_emb)
         joblib.dump(scaler_cat['scaler'], directory + 'scaler_cat.joblib')
         joblib.dump(scaler_cat['freq_encoder'], directory + 'freq_encoder.joblib')
+        joblib.dump(scaler_cat['index_arr'], directory + 'index_arr_cat.joblib')
         ######################################
         
         
@@ -136,6 +144,8 @@ def embeddings(data: pd.DataFrame, cat_feat_names, num_feat_names, onehot_cols, 
         np.save(directory + 'numerical_emb.npy', numerical_emb)
         joblib.dump(scaler_num['scaler_minmax'], directory + 'scaler_minmax.joblib')
         joblib.dump(scaler_num['scaler'], directory + 'scaler_num.joblib')
+        joblib.dump(scaler_num['index_arr'], directory + 'index_arr_num.joblib')
+        joblib.dump(scaler_num['index_df_sort'], directory + 'index_df_sort_num.joblib')
         ######################################
             
             
@@ -158,21 +168,41 @@ def embeddings(data: pd.DataFrame, cat_feat_names, num_feat_names, onehot_cols, 
             
         torch.save(cv_params['encoder'].state_dict(), directory + 'cv_encoder.pt')
         np.save(directory + 'deltas_real.npy', cv_params['deltas_real'])
-        np.save(directory + 'deltas_synth.npy', cv_params['deltas_synth'])
+        # print(cv_params['deltas_real'])
+        # print('ffffffff')
+        # print(cv_params['deltas_synth'])
+        np.save(directory + 'deltas_synth.npy', np.array(cv_params['deltas_synth'], dtype=object), allow_pickle=True)
         np.save(directory + 'xiP.npy', cv_params['xiP'])
-        np.save(directory + 'quantile_index.npy', cv_params['quantile_index'])   
+        np.save(directory + 'quantile_index.npy', np.array(cv_params['quantile_index'], dtype=object), allow_pickle=True)   
         np.save(directory + 'date_transform.npy', cv_params['date_transform']) 
         np.save(directory + 'synth_date.npy', synth_date.values)  
         ######################################
         
     return X_emb, X_oh, cond_vector, synth_date, scaler_cat, scaler_onehot, scaler_num, cv_params, scaler, round_array
     
-    
-    
+def load_model(latent_dim, dim_noise=15, experiment_id='TRGAN_V2_1',
+          DIRECTORY='Pretrained_model/', DEVICE='cpu',  h_dim=2**6):
+    dim_X_emb = latent_dim['onehot'] + latent_dim['categorical'] + latent_dim['numerical']
+    dim_Vc = latent_dim['cv'] + 5
+    h_dim = h_dim
+    num_blocks_gen = 1
+    num_blocks_dis = 1
+    os.makedirs(DIRECTORY, exist_ok=True)
+    generator = Generator(dim_noise + dim_Vc, dim_X_emb, h_dim, num_blocks_gen).to(DEVICE)
+    supervisor = Supervisor(dim_X_emb + dim_Vc, dim_X_emb, h_dim, num_blocks_gen).to(DEVICE)
+
+    generator.load_state_dict(torch.load(f'{DIRECTORY}TRGAN_generator_exp_{experiment_id}.pt', map_location=DEVICE, weights_only=True))
+    supervisor.load_state_dict(torch.load(f'{DIRECTORY}TRGAN_supervisor_exp_{experiment_id}.pt', map_location=DEVICE, weights_only=True))
+
+    generator.eval()
+    supervisor.eval()
+
+    loss_array = np.load(f'{DIRECTORY}loss_array_exp_{experiment_id}.npy')     
+    return generator, supervisor, loss_array 
     
 def train(X_emb, cond_vector, latent_dim, dim_noise=15, epochs=40, experiment_id='TRGAN_V2_1',
           DIRECTORY='Pretrained_model/', DEVICE='cpu', load=False, h_dim=2**6):
-    
+    os.makedirs(DIRECTORY, exist_ok=True)
     dim_X_emb = latent_dim['onehot'] + latent_dim['categorical'] + latent_dim['numerical']
     dim_Vc = latent_dim['cv'] + 5
     h_dim = h_dim

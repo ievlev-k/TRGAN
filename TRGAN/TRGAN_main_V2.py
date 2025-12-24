@@ -287,12 +287,12 @@ def decode_continuous_embeddings(embeddings: np.array, feat_names: list, scaler:
             res_arr = []
             for i in range(synth_cont_feat.shape[1]):
                 temp = np.array(sorted(synth_cont_feat[:, i]))
-                res_arr.append(np.array(sorted(list(zip(temp, scaler['index_arr'][:, i])), key=lambda x: x[1]))[:, 0])
+                res_arr.append(np.array(sorted(list(zip(temp, scaler['index_arr'][:len(embeddings), i])), key=lambda x: x[1]))[:, 0])
             synth_cont_feat = np.array(res_arr).T
             
             synth_cont_feat = (scaler['decoder'](torch.FloatTensor(synth_cont_feat).to(device))).detach().cpu().numpy()
             synth_cont_feat = scaler['scaler_minmax'].inverse_transform(synth_cont_feat)
-        
+            synth_cont_feat = scaler['scaler'][0].inverse_transform(synth_cont_feat)
             # decoded_array = []
             # for i in range(len(feat_names)):
             #     scaler[2][i].reset_randomization()
@@ -300,7 +300,9 @@ def decode_continuous_embeddings(embeddings: np.array, feat_names: list, scaler:
             #     decoded_array.append(temp.values)
             # synth_cont_feat = decoded_array
             
-            synth_cont_feat = scaler['scaler'][0].inverse_transform(synth_cont_feat)
+            df = pd.DataFrame(synth_cont_feat, columns=feat_names).reset_index(drop=True)
+            
+            # df = df.reset_index(drop=True)
             
         else:
             residual = len(embeddings) % len(scaler['index_arr'])
@@ -329,8 +331,15 @@ def decode_continuous_embeddings(embeddings: np.array, feat_names: list, scaler:
             synth_cont_feat = scaler['scaler_minmax'].inverse_transform(synth_cont_feat)
             synth_cont_feat = scaler['scaler'][0].inverse_transform(synth_cont_feat)
             
-        df = pd.DataFrame(synth_cont_feat, columns=feat_names).iloc[scaler['index_df_sort'][:, 0]]
-            
+            n_repeats = len(embeddings) // len(scaler['index_df_sort'])
+            remainder = len(embeddings) % len(scaler['index_df_sort'])   
+            extended_indices = []
+            for _ in range(n_repeats):
+                extended_indices.extend(scaler['index_df_sort'][:, 0].tolist())
+            if remainder > 0:    
+                extended_indices.extend(scaler['index_df_sort'][:remainder, 0].tolist())
+            df = pd.DataFrame(synth_cont_feat, columns=feat_names).iloc[extended_indices]
+            # df = df.reset_index(drop=True)
         
     elif type_scale_cont == 'CBNormalize':
         cont_synth = []
@@ -569,13 +578,17 @@ def create_cond_vector(data: pd.DataFrame, X_emb: np.array, date_feature: str, n
 
 
 def inverse_transform(synth_data: np.array, latent_dim: dict, onehot_cols:list, scaler_onehot: dict, scaler_cat: dict, scaler_num: dict,
-                      cat_feat_names, mcc_name, num_feat_names, synth_date_flag = False, synth_date = '', time_feature = '', round_array=[]) -> pd.DataFrame:
+                      cat_feat_names, mcc_name, num_feat_names, synth_date_flag = False, synth_date = '', time_feature = '', round_array=[], device = 'cpu') -> pd.DataFrame:
     
-    synth_df_onehot = decode_onehot_embeddings(synth_data[:, :latent_dim['onehot']], onehot_cols, scaler_onehot, mcc_name)
-    synth_df_cat = decode_categorical_embeddings(synth_data[:, latent_dim['onehot']:latent_dim['onehot']+latent_dim['categorical']], cat_feat_names, scaler_cat)
-    synth_df_num = decode_continuous_embeddings(synth_data[:, -latent_dim['numerical']:], num_feat_names, scaler_num)
+    synth_df_onehot = decode_onehot_embeddings(synth_data[:, :latent_dim['onehot']], onehot_cols, scaler_onehot, mcc_name, device)
+    synth_df_cat = decode_categorical_embeddings(synth_data[:, latent_dim['onehot']:latent_dim['onehot']+latent_dim['categorical']], cat_feat_names, scaler_cat, device=device)
+    synth_df_num = decode_continuous_embeddings(synth_data[:, -latent_dim['numerical']:], num_feat_names, scaler_num, device=device)
     synth_df_num = make_round(synth_df_num, round_array, num_feat_names, time_feature)
-    
+    synth_df_onehot = synth_df_onehot.reset_index(drop=True)
+    synth_df_cat = synth_df_cat.reset_index(drop=True)
+
+    synth_df_num = synth_df_num.reset_index(drop=True)
+
     synth_df = pd.concat([synth_df_onehot, synth_df_cat, synth_df_num], axis=1)
     synth_df = synth_df.reset_index(drop=True)
     
@@ -1029,7 +1042,10 @@ def sample_cond_vector_with_time(n_samples, len_cond_vector, X_emb, data, date_f
 
 def sample(n_samples, generator, supervisor, noise_dim, cond_vector, X_emb, encoder, data,\
             date_feature, name_client_id, time_type: str = 'synth', model_time='poisson', n_splits=3, opt_time=False, cv_params: dict = {}, device='cpu'):
-    
+
+    generator = generator.to(device)
+    supervisor = supervisor.to(device)
+
     if n_samples <= len(cond_vector):
         ##### for scenario modelling
         X_emb_cv = encoder(torch.FloatTensor(X_emb).to(device)).detach().cpu().numpy()
@@ -1064,6 +1080,30 @@ def sample(n_samples, generator, supervisor, noise_dim, cond_vector, X_emb, enco
 
     return synth_data, synth_date, params
 
+
+def sample_without_data(n_samples, generator, supervisor, noise_dim, cond_vector, 
+                       device='cpu'):
+    """
+    Упрощенная генерация без временных меток
+    """
+    generator = generator.to(device)
+    supervisor = supervisor.to(device)
+    
+    # Используем только cond_vector без генерации времени
+    cond_vector_sample = cond_vector[:n_samples] if n_samples <= len(cond_vector) else cond_vector
+    
+    noise = torch.randn(n_samples, noise_dim).to(device)
+    z = torch.cat([noise, torch.FloatTensor(cond_vector_sample).to(device)], axis=1)
+    
+    synth_data = supervisor(
+        torch.cat([generator(z).detach(), 
+                  torch.FloatTensor(cond_vector_sample).to(device)], dim=1)
+    ).detach().cpu().numpy()
+    
+    # Возвращаем пустой DataFrame для дат
+    synth_date = pd.DataFrame()
+    
+    return synth_data, synth_date, {}
 ################################################################################################
 
 
