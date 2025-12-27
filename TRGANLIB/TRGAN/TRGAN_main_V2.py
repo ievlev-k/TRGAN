@@ -19,8 +19,8 @@ from rdt.transformers.numerical import GaussianNormalizer
 from scipy import signal
 from functorch import vmap
 
-from TRGAN.encoders import *
-from TRGAN.TRGAN_light_preprocessing import *
+from TRGANLIB.TRGAN.encoders import *
+from TRGANLIB.TRGAN.TRGAN_light_preprocessing import *
 
 
 '''

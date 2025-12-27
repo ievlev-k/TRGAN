@@ -1,8 +1,8 @@
 import numpy as np
 import torch
 import joblib
-from TRGAN.encoders import *
-from TRGAN.TRGAN_main_V2 import *
+from TRGANLIB.TRGAN.encoders import *
+from TRGANLIB.TRGAN.TRGAN_main_V2 import *
 import os
 
 def embeddings(data: pd.DataFrame, cat_feat_names, num_feat_names, onehot_cols, date_feature, time_feature, client_id,
