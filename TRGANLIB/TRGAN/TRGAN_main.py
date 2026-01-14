@@ -20,7 +20,7 @@ from rdt.transformers.categorical import FrequencyEncoder
 from scipy import signal
 from functorch import vmap
 
-from TRGAN.encoders import *
+from TRGANLIB.TRGAN.encoders import *
 
 
 '''

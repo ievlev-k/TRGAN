@@ -20,7 +20,7 @@ from scipy import signal
 from functorch import vmap
 # from torch import vmap
 
-from TRGAN.encoders import *
+from TRGANLIB.TRGAN.encoders import *
 
 
 '''

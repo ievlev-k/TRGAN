@@ -19,10 +19,10 @@ from scipy.stats import kstest, ks_2samp, wasserstein_distance
 import scipy.stats as sts
 from tqdm import tqdm
 
-from TRGAN.TRGAN_main_V2 import *
-from TRGAN.encoders import *
-import TRGAN.TRGAN_train_load_modules as trgan_train
-from TRGAN.evaluation_metrics import *
+from TRGANLIB.TRGAN.TRGAN_main_V2 import *
+from TRGANLIB.TRGAN.encoders import *
+import TRGANLIB.TRGAN.TRGAN_train_load_modules as trgan_train
+from TRGANLIB.TRGAN.evaluation_metrics import *
 
 
 from sdv.single_table import CopulaGANSynthesizer
